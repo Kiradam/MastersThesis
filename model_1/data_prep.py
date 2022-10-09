@@ -28,16 +28,19 @@ def data_prep(featuresdf: pd.DataFrame,
               edgesdf: pd.DataFrame,
               classesdf: pd.DataFrame,
               time_seg: int,
-              directed: bool = True) -> dict:
+              directed: bool = True,
+              test_size: float = 0.15) -> tuple:
+
     """
     Prepares data for analysis with a given time segment
 
     :param featuresdf: df containing transaction features
     :param edgesdf: df containing edges
     :param classesdf: df containing classes
-    :param directed: bool for directed graph
     :param time_seg: int for choosing time segment
-    :return:
+    :param directed: bool for directed graph
+    :param test_size: test size percentage
+    :return: tuple with all data
     """
 
     # loading data
@@ -54,7 +57,7 @@ def data_prep(featuresdf: pd.DataFrame,
     df_merge = df_features.merge(df_classes, how='left', right_on="txId", left_on=0)
     df_merge = df_merge.sort_values(0).reset_index(drop=True)
 
-    # storing classified unclassified nodes separately for training and testing purpose
+    # storing classified unclassified nodes separately for training and testing purposes
     classified = df_merge.loc[df_merge['class'].loc[df_merge['class'] != 2].index].drop('txId', axis=1)
     unclassified = df_merge.loc[df_merge['class'].loc[df_merge['class'] == 2].index].drop('txId', axis=1)
     classified_edges = df_edges.loc[df_edges['txId1'].isin(classified[0]) & df_edges['txId2'].isin(classified[0])]
@@ -104,13 +107,8 @@ def data_prep(featuresdf: pd.DataFrame,
 
     # spliting train set and validation set
     X_train, X_valid, y_train, y_valid, train_idx, valid_idx = train_test_split(node_features[classified_idx], y_train,
-                                                                                classified_idx, test_size=0.15,
+                                                                                classified_idx, test_size=test_size,
                                                                                 random_state=42, stratify=y_train)
 
-    # TODO finalizing the function and splitting
-    pass
+    return data_train, X_train, X_valid, y_train, y_valid, train_idx, valid_idx, classified_idx, unclassified_idx
 
-
-if __name__ == "__main__":
-    d = reader('../data/)')
-    data_prep(d['features'], d['edges'], d['classes'], 4)
