@@ -3,6 +3,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 import torch
 from torch_geometric.data import Data
+from typing import List
 
 
 def reader(path: str) -> dict:
@@ -29,7 +30,8 @@ def data_prep(featuresdf: pd.DataFrame,
               classesdf: pd.DataFrame,
               time_seg: int,
               directed: bool = True,
-              test_size: float = 0.15) -> tuple:
+              test_size: float = 0.15,
+              **kwargs) -> tuple:
 
     """
     Prepares data for analysis with a given time segment
@@ -106,9 +108,13 @@ def data_prep(featuresdf: pd.DataFrame,
     y_train = labels[classified_idx]
 
     # spliting train set and validation set
-    X_train, X_valid, y_train, y_valid, train_idx, valid_idx = train_test_split(node_features[classified_idx], y_train,
+    if test_size == 0:
+        X_train, X_valid, y_train, y_valid, train_idx, valid_idx = (
+            node_features[classified_idx], node_features[classified_idx], y_train, y_train, classified_idx, classified_idx
+        )
+    else:
+        X_train, X_valid, y_train, y_valid, train_idx, valid_idx = train_test_split(node_features[classified_idx], y_train,
                                                                                 classified_idx, test_size=test_size,
                                                                                 random_state=42, stratify=y_train)
 
     return data_train, X_train, X_valid, y_train, y_valid, train_idx, valid_idx, classified_idx, unclassified_idx
-

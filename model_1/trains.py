@@ -2,7 +2,7 @@ from model_1.net import Net
 from model_1.data_prep import data_prep
 import numpy as np
 import pandas as pd
-from sklearn.metrics import roc_auc_score, accuracy_score, confusion_matrix
+from sklearn.metrics import roc_auc_score, accuracy_score, confusion_matrix, f1_score
 import torch
 import torch_geometric
 
@@ -11,7 +11,8 @@ def train_1segment(data_train: torch_geometric.data.Data,
                    train_idx: np.ndarray,
                    valid_idx: np.ndarray,
                    epnum: int = 70,
-                   print_res: bool = True) -> tuple:
+                   print_res: bool = True,
+                   **kwargs) -> tuple:
     """
     Training the model for 1 time-segment (needs to be prefiltered)
 
@@ -30,7 +31,7 @@ def train_1segment(data_train: torch_geometric.data.Data,
     data_train = data_train.to(device)
 
     # configuring model
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.01, weight_decay=1e-5)  # in article lr= 0.0001
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001, weight_decay=1e-5)  # in article lr= 0.0001
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
     criterion = torch.nn.BCELoss()
 
@@ -59,21 +60,25 @@ def train_1segment(data_train: torch_geometric.data.Data,
     # accuracy calculations
     train_acc = accuracy_score(data_train.y.detach().cpu().numpy()[train_idx], out_labels[train_idx])
     train_auc = roc_auc_score(data_train.y.detach().cpu().numpy()[train_idx], preds[train_idx])
+    train_f1 = f1_score(data_train.y.detach().cpu().numpy()[train_idx], out_labels[train_idx])
     if print_res:
         print("train accuracy: ", train_acc)
         print("train AUC: ", train_auc)
+        print("train F1: ", train_f1)
     valid_auc = roc_auc_score(data_train.y.detach().cpu().numpy()[valid_idx], preds[valid_idx])
     out_labels = out.detach().cpu().numpy() > 0.6
     valid_acc = accuracy_score(data_train.y.detach().cpu().numpy()[valid_idx], out_labels[valid_idx])
+    valid_f1 = f1_score(data_train.y.detach().cpu().numpy()[valid_idx], out_labels[valid_idx])
     if print_res:
         print("valid accuracy: ", valid_acc)
         print("valid AUC: ", valid_auc)
+        print("valid F1: ", valid_f1)
 
     # confusion matrices
     cm_valid = confusion_matrix(data_train.y.detach().cpu().numpy()[valid_idx], out_labels[valid_idx])
     cm_train = confusion_matrix(data_train.y.detach().cpu().numpy()[train_idx], out_labels[train_idx])
 
-    return model, cm_train, cm_valid
+    return model, cm_train, cm_valid, train_f1, valid_f1
 
 
 def multiproc(d: pd.DataFrame, seg: int = 35, **kwargs) -> tuple:
@@ -86,6 +91,6 @@ def multiproc(d: pd.DataFrame, seg: int = 35, **kwargs) -> tuple:
     """
 
     data_train, X_train, X_valid, y_train, y_valid, train_idx, valid_idx, classified_idx, unclassified_idx = data_prep(
-        d['features'], d['edges'], d['classes'], seg)
+        d['features'], d['edges'], d['classes'], seg, **kwargs)
 
     return train_1segment(data_train, train_idx, valid_idx, **kwargs)
