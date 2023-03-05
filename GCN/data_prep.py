@@ -47,7 +47,8 @@ def data_prep(featuresdf: pd.DataFrame,
 
     # loading data
     df_features = featuresdf.copy()
-    df_features = df_features.loc[df_features[1] == time_seg]
+    if time_seg != 0:
+        df_features = df_features.loc[df_features[1] == time_seg]
     time_id = df_features[0]
     df_edges = edgesdf.copy()
     df_edges = df_edges.loc[df_edges['txId1'].isin(time_id) | df_edges['txId2'].isin(time_id)]
