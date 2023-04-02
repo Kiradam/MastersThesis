@@ -3,17 +3,29 @@ import random as rd
 import numpy as np
 import scipy.sparse as sp
 import copy as cp
+
+from pandas import DataFrame
+from pandas._typing import NDFrameT
 from sklearn.metrics import f1_score, accuracy_score, recall_score, roc_auc_score, average_precision_score
 from collections import defaultdict
 import pandas as pd
-
+from typing import Tuple, Any
 
 """
 	Utility functions to handle data and evaluate model.
 """
 
 
-def load_data(prefix='../data/'):
+def load_data(prefix: str = '../data/', edges_path: str = 'hdbscan_70.csv') -> Tuple[
+	Any, Any, DataFrame | NDFrameT | None, Any]:
+	"""
+	Data loader for CARE/SAGE-GNN
+
+	:param prefix: path to feature, label and edge data
+	:param edges_path: name of edge color file
+	:return:
+	"""
+
 	classes = pd.read_csv(prefix + 'elliptic_txs_classes.csv')
 	classes = classes.loc[classes['class'] != 'unknown']
 	edges = pd.read_csv(prefix + 'elliptic_txs_edgelist.csv')
@@ -34,14 +46,14 @@ def load_data(prefix='../data/'):
 
 	edges['txId1'] = edges['txId1'].apply(lambda x: rename[x])
 	edges['txId2'] = edges['txId2'].apply(lambda x: rename[x])
-	hdb_70 = pd.read_csv(prefix + 'hdbscan_clustered_edges_labeled_min_70.csv').drop(['Unnamed: 0'], axis=1)
+	all_edges = pd.read_csv(prefix + edges_path).drop(['Unnamed: 0'], axis=1)
 
 	all_nodes = all_nodes.apply(lambda x: rename[x])
-	hdb_70["txId1"] = hdb_70["txId1"].apply(lambda x: rename[x])
-	hdb_70["txId2"] = hdb_70["txId2"].apply(lambda x: rename[x])
+	all_edges["txId1"] = all_edges["txId1"].apply(lambda x: rename[x])
+	all_edges["txId2"] = all_edges["txId2"].apply(lambda x: rename[x])
 	labels = ((data['class'].astype(int) - 2) * (-1)).to_numpy()
 	feat_data = data.drop('class', axis=1).to_numpy()
-	return all_nodes, feat_data, hdb_70, labels
+	return all_nodes, feat_data, all_edges, labels
 
 
 def normalize(mx):
@@ -147,8 +159,7 @@ def test_sage(test_cases, labels, model, batch_size):
 	for i, j in enumerate(labels):
 		if j == 1:
 			label1_gnn.append(gnn_list[i])
-	auc_label1 = np.nan
-	ap_label1 = np.nan
+
 	auc_gnn = roc_auc_score(labels, np.array(gnn_list))
 	ap_gnn = average_precision_score(labels, np.array(gnn_list))
 	print(f"GNN F1: {f1_gnn / test_batch_num:.4f}")
@@ -200,18 +211,11 @@ def test_care(test_cases, labels, model, batch_size):
 
 	auc_gnn = roc_auc_score(labels, np.array(gnn_list))
 	ap_gnn = average_precision_score(labels, np.array(gnn_list))
-	auc_label1 = roc_auc_score(labels, np.array(label_list1))
-	ap_label1 = average_precision_score(labels, np.array(label_list1))
+
 	print(f"GNN F1: {f1_gnn / test_batch_num:.4f}")
 	print(f"GNN Accuracy: {acc_gnn / test_batch_num:.4f}")
 	print(f"GNN Recall: {recall_gnn / test_batch_num:.4f}")
 	print(f"GNN auc: {auc_gnn:.4f}")
 	print(f"GNN ap: {ap_gnn:.4f}")
-	"""
-	print(f"Label1 F1: {f1_label1 / test_batch_num:.4f}")
-	print(f"Label1 Accuracy: {acc_label1 / test_batch_num:.4f}")
-	print(f"Label1 Recall: {recall_label1 / test_batch_num:.4f}")
-	print(f"Label1 auc: {auc_label1:.4f}")
-	print(f"Label1 ap: {ap_label1:.4f}")"""
 
 	return auc_gnn, f1_gnn / test_batch_num, ap_gnn

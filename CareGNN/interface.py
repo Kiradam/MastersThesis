@@ -5,11 +5,18 @@ from graphsage import *
 from model import *
 import time
 import pickle
+from typing import Tuple, Union, List, DefaultDict
+from enum import Enum
+
+
+class ModelType(Enum):
+    CARE = "CARE"
+    SAGE = "SAGE"
 
 
 class CareInterface:
     """
-
+    Model interface for handling CARE and SAGE-GNN related tasks
     """
     _model_type = None
     _inter_agg = None
@@ -22,26 +29,34 @@ class CareInterface:
     epochs_result = None
     _batch_size = None
 
-    def __init__(self, model_type: str = 'CARE', inter_agg: str = 'GNN'):
+    def __init__(self, model_type: ModelType, inter_agg: str = 'GNN') -> None:
         """
+        Constructor for model interface
 
-        :param model_type:
-        :param inter_agg:
+        :param model_type: type of model
+        :param inter_agg: inter relation aggregator
         """
         self._model_type = model_type
         self._inter_agg = inter_agg
         self._cuda = torch.cuda.is_available()
 
-    def preprocess(self, all_nodes, features, edges, labels, result: bool = False):
+    def preprocess(self,
+                   all_nodes: pd.Series,
+                   features: np.array,
+                   edges: pd.DataFrame,
+                   labels: np.array,
+                   result: bool = False) -> Union[None, Tuple[List[DefaultDict[Any, set]], np.array, np.array]]:
+        """
+        Preprocessing function for appropriate data format
+
+        :param all_nodes: series of node ID-s
+        :param features: array of features
+        :param edges: dataframe of edges and relations
+        :param labels: array of labels
+        :param result: bool for returning the processed dataset
+        :return: None or processed dataset
         """
 
-        :param all_nodes:
-        :param features:
-        :param edges:
-        :param labels:
-        :param result:
-        :return:
-        """
         self._num_relations = len(edges[edges.columns[2]].unique())
         relation_types = edges[edges.columns[2]].unique()
         relation_list = []
@@ -59,7 +74,7 @@ class CareInterface:
         for k, l in zip(relation_types, range(self._num_relations)):
             for _, j in all_nodes.items():
                 relation_list[l + 1][j].add(j)
-            for i, j in edges.loc[edges['HDBSCAN'] == -1].iterrows():
+            for i, j in edges.loc[edges[edges.columns[2]] == -1].iterrows():
                 relation_list[l + 1][j['txId1']].add(j['txId2'])
                 relation_list[l + 1][j['txId2']].add(j['txId1'])
 
@@ -83,23 +98,23 @@ class CareInterface:
             step_size: float = 2e-2,
             seed: int = 72,
             preprocessed: bool = False,
-            optimize_on_ap: bool = True):
+            optimize_on_ap: bool = True) -> None:
         """
+        Fitting method of the interface
 
         :param data_list:
-        :param batch_size:
-        :param lr:
-        :param lambda_1:
-        :param lambda_2:
-        :param embedding_size:
-        :param num_epochs:
-        :param test_epochs:
-        :param test_size:
-        :param step_size:
-        :param seed:
-        :param preprocessed:
-        :param optimize_on_ap:
-        :return:
+        :param batch_size: batch size
+        :param lr: learning rate
+        :param lambda_1: lambda 1
+        :param lambda_2: lambda 2
+        :param embedding_size: size of embedding
+        :param num_epochs: number of epochs during fitting
+        :param test_epochs: frequency of testing
+        :param test_size: size of test set
+        :param step_size: step size
+        :param seed: random seed
+        :param preprocessed: bool for getting preprocessed data
+        :param optimize_on_ap: bool for saving model when test average precision is better
         """
 
         max_ap = 0
@@ -131,14 +146,15 @@ class CareInterface:
         labels = self._labels
 
         # build one-layer models
-        if self._model_type == 'SAGE':
+        if self._model_type.value == 'SAGE':
             adj_lists = self._relation_list[0]
             agg1 = MeanAggregator(features, cuda=self._cuda)
             enc1 = Encoder(features, feat_data.shape[1], embedding_size, adj_lists, agg1, gcn=True, cuda=self._cuda)
             enc1.num_samples = 5
             gnn_model = GraphSage(2, enc1)
+            inter1 = None
 
-        elif self._model_type == 'CARE':
+        else:
             adj_lists = self._relation_list[1:]
             intra_list = []
             for _ in range(self._num_relations):
@@ -167,7 +183,7 @@ class CareInterface:
 
             # send number of batches to model to let the RLModule know the training progress
             num_batches = int(len(sampled_idx_train) / batch_size) + 1
-            if self._model_type == 'CARE':
+            if self._model_type.value == 'CARE':
                 inter1.batch_num = num_batches
 
             loss = 0.0
@@ -196,7 +212,7 @@ class CareInterface:
 
             # testing the model for every $test_epoch$ epoch
             if epoch % test_epochs == 0:
-                if self._model_type == 'SAGE':
+                if self._model_type.value == 'SAGE':
                     for i in test_sage(idx_test, y_test, gnn_model, batch_size):
                         epoch_test[epoch].append(i)
                 else:
@@ -210,26 +226,28 @@ class CareInterface:
         if not optimize_on_ap:
             self._model = gnn_model
 
-    def predict_proba(self, features, edges):
+    def predict_proba(self, features: np.array, edges: pd.DataFrame) -> List[float]:
         """
+        Predict probabilities
 
-        :param idx_test:
-        :return:
+        :param features: features to test
+        :param edges: edges
+        :return: list of probabilities
         """
         all_nodes = pd.Series(range(len(features)))
 
-        rel, feat, lab = a.preprocess(all_nodes, features, edges, [0] * len(features), result=True)
+        rel, feat, lab = self.preprocess(all_nodes, features, edges, [0] * len(features), result=True)
 
         features = nn.Embedding(feat.shape[0], feat.shape[1])
         feat_data = normalize(feat)
         features.weight = nn.Parameter(torch.FloatTensor(feat_data), requires_grad=False)
 
-        if self._model == 'CARE':
-            self._model.inter1.features = features
-            self._model.inter1.adj_lists = rel[1:]
-        elif self._model == 'SAGE':
+        if self._model_type.value == 'SAGE':
             self._model.enc.features = features
             self._model.enc.adj_lists = rel[0]
+        else:
+            self._model.inter1.features = features
+            self._model.inter1.adj_lists = rel[1:]
 
         idx_test = all_nodes.to_list()
 
@@ -242,72 +260,71 @@ class CareInterface:
             i_start = iteration * batch_size
             i_end = min((iteration + 1) * batch_size, len(idx_test))
             batch_nodes = idx_test[i_start:i_end]
-            if self._model_type == 'CARE':
-                gnn_prob, label_prob1 = gnn_model.to_prob(batch_nodes, labels=[0] * (i_end-i_start), train_flag=False)
-            elif self._model_type == 'SAGE':
+            if self._model_type.value == 'SAGE':
                 self._model.enc.num_sample = None
                 gnn_prob = gnn_model.to_prob(batch_nodes)
+            else:
+                gnn_prob, label_prob1 = gnn_model.to_prob(batch_nodes, labels=[0] * (i_end - i_start), train_flag=False)
+
             gnn_list.extend(gnn_prob.data.cpu().numpy()[:, 1].tolist())
 
         return gnn_list
 
-    def save_model(self, filename: str):
+    def save_model(self, filename: str) -> None:
+        """
+        Function for saving model
+
+        :param filename: path to save
         """
 
-        :param filename:
-        :return:
-        """
-        pickle.dump(self._model, open(filename+'.sav', 'wb'))
+        pickle.dump(self._model, open(filename + '.sav', 'wb'))
 
-    def load_model(self, filename: str, batch_size: int=1024):
+    def load_model(self, filename: str, batch_size: int = 1024) -> None:
+        """
+        Function for loading model
+
+        :param filename: path to model
+        :param batch_size: batch size used for training
         """
 
-        :param filename:
-        :param batch_size:
-        :return:
-        """
         self._batch_size = batch_size
-        self._model = pickle.load(open(filename+'.sav', 'rb'))
+        self._model = pickle.load(open(filename + '.sav', 'rb'))
 
 
-def adding_set():
+def adding_set() -> type:
     """
-
-    :return:
+    Function for returning set type (pickle conflict)
     """
     return set
 
 
 if __name__ == '__main__':
-    """all_nodes, feat_data, hdb_70, labels = load_data()
-    a = CareInterface(model_type='CARE')
-    a.fit([all_nodes, feat_data, hdb_70, labels], num_epochs=1024, optimize_on_ap=True)
-    a.save_model('care_gnn')
-    print(a.epochs_result)
-    a.epochs_result.to_csv('care.csv')
-    a = CareInterface(model_type='SAGE')
-    a.fit([all_nodes, feat_data, hdb_70, labels], num_epochs=1024, optimize_on_ap=True)
-    a.save_model('sage_gnn')
-    print(a.epochs_result)
-    a.epochs_result.to_csv('sage.csv')"""
-    all_nodes, feat_data, hdb_70, labels = load_data()
+    # loading data
+    list_of_nodes, feature_data, edge_colours, classes = load_data()
 
-    a = CareInterface(model_type='SAGE')
-    a.load_model('sage_gnn')
-    print(a.predict_proba(feat_data[range(5), :], hdb_70))
-    print(a.predict_proba(feat_data[range(5), :], hdb_70))
-    print(a.predict_proba(feat_data[range(5), :], hdb_70))
-"""    rel, feat, lab = a.preprocess(all_nodes, feat_data, hdb_70, labels, result=True)
+    # training CARE-GNN with hdbscan edges
+    analysis_hdbscan = CareInterface(model_type=ModelType.CARE)
+    analysis_hdbscan.fit([list_of_nodes, feature_data, edge_colours, classes], num_epochs=1024, optimize_on_ap=True)
+    analysis_hdbscan.save_model('../models_result/care_gnn')
+    analysis_hdbscan.epochs_result.to_csv('../models_result/care.csv')
 
-    features = nn.Embedding(feat.shape[0], feat.shape[1])
-    feat_data = normalize(feat)
-    features.weight = nn.Parameter(torch.FloatTensor(feat_data), requires_grad=False)
-    a._model.inter1.features = features
-    a._model.inter1.adj_lists = rel[1:]
+    # training SAGE-GNN with hdbscan edges
+    analysis_hdbscan = CareInterface(model_type=ModelType.SAGE)
+    analysis_hdbscan.fit([list_of_nodes, feature_data, edge_colours, classes], num_epochs=1024, optimize_on_ap=True)
+    analysis_hdbscan.save_model('../models_result/sage_gnn')
+    analysis_hdbscan.epochs_result.to_csv('../models_result/sage.csv')
 
-    print(a.predict_proba(range(len(all_nodes))))
-    res_2 = a.predict_proba(range(len(all_nodes)))
+    # loading data with xgb predicted edges
+    list_of_nodes, feature_data, edge_colours, classes = load_data(edges_path='xgb_graph.csv')
 
-    print(res_1 == res_2)"""
+    # training CARE-GNN with xgb edges
+    analysis_xgb = CareInterface(model_type=ModelType.CARE)
+    analysis_xgb.fit([list_of_nodes, feature_data, edge_colours, classes], num_epochs=1024, optimize_on_ap=True)
+    analysis_xgb.save_model('../models_result/care_gnn_xgb')
+    analysis_xgb.epochs_result.to_csv('../models_result/care_xgb.csv')
 
-
+    # training SAGE-GNN with xgb edges
+    analysis_xgb = CareInterface(model_type=ModelType.SAGE)
+    analysis_xgb.fit([list_of_nodes, feature_data, edge_colours, classes], num_epochs=1024, optimize_on_ap=True)
+    analysis_xgb.save_model('../models_result/sage_gnn_xgb')
+    analysis_xgb.epochs_result.to_csv('../models_result/sage_xgb.csv')
