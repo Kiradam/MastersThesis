@@ -145,7 +145,6 @@ def test_sage(test_cases, labels, model, batch_size):
 		gnn_prob = model.to_prob(batch_nodes)
 		gnn_label = gnn_prob.data.cpu().numpy().argmax(axis=1)
 		f1_gnn += f1_score(batch_label, gnn_label, average="macro")
-		f1_gnn += f1_score(batch_label, gnn_label, average="macro")
 		label1_gnn = []
 		for i, j in enumerate(batch_label):
 			if j == 1:
